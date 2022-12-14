@@ -4,6 +4,7 @@
 
 const int DHTPIN = 14; // what digital pin we're connected to
 const int DHTTYPE = DHT22; // DHT 22 (AM2302), AM2321
+const int LEDPIN = 19; // what digital pin we're connected to
 const char* ssid = "iPhone de Lucas";
 const char* password = "babayaga";
 
@@ -28,6 +29,8 @@ String output27State = "off";
 
 void setup() {
   Serial.begin(115200);
+  pinMode(LEDPIN, OUTPUT);
+  digitalWrite(LEDPIN, LOW);
   dht.begin();
   Serial.print("Connecting to ");
   Serial.println(ssid);
@@ -37,6 +40,11 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
+  if (WiFi.status() == WL_CONNECTED)
+  {
+      digitalWrite(LEDPIN, HIGH);
+  }
+  
   // Print local IP address and start web server
   Serial.println("");
   Serial.println("WiFi connected.");
