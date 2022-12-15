@@ -9,9 +9,12 @@
 #include <Adafruit_MPU6050.h>
 #include <PubSubClient.h>
 
-const int DHTPIN = 14; // what digital pin we're connected to
+const int DHTPIN = 14; // DHT sensor pin
 const int DHTTYPE = DHT22; // DHT 22 (AM2302), AM2321
-const int LEDPIN = 19; // what digital pin we're connected to
+const int LEDPIN = 2; // Led pin
+const int SHOCKLEDPIN = 19; // Shock Led pin
+const int BUZZERPIN = 23; // Buzzer sensor pin
+const int SHOCKPIN = 32; // Shock sensor pin
 const char* ssid = "iPhone de Lucas";
 const char* password = "babayaga";
 const char* mqtt_server = "172.20.10.2";
@@ -67,7 +70,19 @@ void initDHT() {
   Serial.println("DHT22 Found!");
 }
 
-// Init LED
+// Init Shock sensor
+void initShock() {
+  pinMode(SHOCKPIN, INPUT);
+  pinMode(SHOCKLEDPIN, OUTPUT);
+  digitalWrite(SHOCKLEDPIN, LOW);
+}
+
+// Init Buzzer sensor
+void initBuzzer() {
+  pinMode(BUZZERPIN, INPUT);
+}
+
+// Init buil-in LED
 void initLED() {
   pinMode(LEDPIN, OUTPUT);
   digitalWrite(LEDPIN, LOW);
@@ -141,15 +156,20 @@ void reconnect() {
     }
   }
 }
+// calculate radians to degrees
+float radToDeg(float rad) {
+  return rad * 180 / M_PI;
+}
+
 
 String getGyroReadings() {
   mpu.getEvent(&a, &g, &temp);
   gx = g.gyro.x;
   gy = g.gyro.y;
   gz = g.gyro.z;
-  docReadings["gx"] = gx;
-  docReadings["gy"] = gy;
-  docReadings["gz"] = gz;
+  docReadings["gyroX"] = gx * 180 / M_PI;
+  docReadings["gyroY"] = gy;
+  docReadings["gyroZ"] = gz;
   String jsonString;
   serializeJson(docReadings, jsonString);
   return jsonString;
@@ -160,9 +180,9 @@ String getAccReadings() {
   ax = a.acceleration.x;
   ay = a.acceleration.y;
   az = a.acceleration.z;
-  docReadings["ax"] = ax;
-  docReadings["ay"] = ay;
-  docReadings["az"] = az;
+  docReadings["accX"] = ax;
+  docReadings["accY"] = ay;
+  docReadings["accZ"] = az;
   String jsonString;
   serializeJson(docReadings, jsonString);
   return jsonString;
@@ -180,32 +200,33 @@ String getTemperatureReadings() {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LEDPIN, OUTPUT);
   initMPU6050();
   initDHT();
+  initShock();
+  initBuzzer();
   initLED();
   initSPIFFS();
   initWiFi();
   initMQTT();
 
+  File file = SPIFFS.open("/index.html");
+  if(!file){
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+  Serial.println("File Content:");
+  while(file.available()){
+    Serial.write(file.read());
+  }
+  file.close();
   // Send a GET request to <ESP_IP>/get?message=<message>
-  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){
+  server.on("/home", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.html", "text/html");
   });
 
-  // Serve static files
+  // Serves static files
   server.serveStatic("/", SPIFFS, "/");
 
-  // Handle Web Server Events
-  events.onConnect([](AsyncEventSourceClient *client){
-    if(client->lastId()){
-      Serial.printf("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
-    }
-
-    // send event with message "hello!", id current millis
-    // and set reconnect delay to 1 second
-    client->send("hello!", NULL, millis(), 10000);
-  });
   server.addHandler(&events);
   server.begin();
 }
@@ -224,17 +245,17 @@ void loop() {
     // Publish Humidity
     client.publish("esp32/humidity", docReadings["hum"].as<String>().c_str());
     // Publish GyroX
-    client.publish("esp32/gyroX", docReadings["gx"].as<String>().c_str());
+    client.publish("esp32/gyroX", docReadings["gyroX"].as<String>().c_str());
     // Publish GyroY
-    client.publish("esp32/gyroY", docReadings["gy"].as<String>().c_str());
+    client.publish("esp32/gyroY", docReadings["gyroY"].as<String>().c_str());
     // Publish GyroZ
-    client.publish("esp32/gyroZ", docReadings["gz"].as<String>().c_str());
+    client.publish("esp32/gyroZ", docReadings["gyroZ"].as<String>().c_str());
     // Publish AccX
-    client.publish("esp32/accX", docReadings["ax"].as<String>().c_str());
+    client.publish("esp32/accX", docReadings["accX"].as<String>().c_str());
     // Publish AccY
-    client.publish("esp32/accY", docReadings["ay"].as<String>().c_str());
+    client.publish("esp32/accY", docReadings["accY"].as<String>().c_str());
     // Publish AccZ
-    client.publish("esp32/accZ", docReadings["az"].as<String>().c_str());
+    client.publish("esp32/accZ", docReadings["accZ"].as<String>().c_str());
   }
 
   if((millis() - lastTime) > gyroDelay) {
