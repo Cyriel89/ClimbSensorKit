@@ -13,7 +13,6 @@ if (!!window.EventSource) {
     }, false);
   
     source.addEventListener('gyro_readings', function(e) {
-      //console.log("gyro_readings", e.data);
       var obj = JSON.parse(e.data);
       document.getElementById("gyroX").innerHTML = obj.gyroX;
       document.getElementById("gyroY").innerHTML = obj.gyroY;
@@ -21,9 +20,9 @@ if (!!window.EventSource) {
     }, false);
   
     source.addEventListener('temperature_readings', function(e) {
-      console.log("temperature_reading", e.data);
-      document.getElementById("temp").innerHTML = e.data;
-      document.getElementById("hum").innerHTML = e.data;
+      var obj = JSON.parse(e.data);
+      document.getElementById("temp").innerHTML = obj.temp;
+      document.getElementById("hum").innerHTML = obj.hum;
     }, false);
   
     source.addEventListener('accelerometer_readings', function(e) {
