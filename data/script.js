@@ -20,15 +20,11 @@ if (!!window.EventSource) {
       document.getElementById("gyroZ").innerHTML = obj.gyroZ;
     }, false);
   
-    source.addEventListener('temperature_reading', function(e) {
+    source.addEventListener('temperature_readings', function(e) {
       console.log("temperature_reading", e.data);
       document.getElementById("temp").innerHTML = e.data;
+      document.getElementById("hum").innerHTML = e.data;
     }, false);
-
-    source.addEventListener('humidity_reading', function(e) {
-        console.log("humidity_reading", e.data);
-        document.getElementById("hum").innerHTML = e.data;
-      }, false);
   
     source.addEventListener('accelerometer_readings', function(e) {
       console.log("accelerometer_readings", e.data);

@@ -1,6 +1,12 @@
 #include <Arduino.h>
 #include <DHT.h>
 #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <SPIFFS.h>
+#include <ArduinoJson.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_MPU6050.h>
 
 const int DHTPIN = 14; // what digital pin we're connected to
 const int DHTTYPE = DHT22; // DHT 22 (AM2302), AM2321
@@ -8,30 +14,76 @@ const int LEDPIN = 19; // what digital pin we're connected to
 const char* ssid = "iPhone de Lucas";
 const char* password = "babayaga";
 
-// Current time
-unsigned long currentTime = millis();
-// Previous time
-unsigned long previousTime = 0; 
-// Define timeout time in milliseconds (example: 2000ms = 2s)
-const long timeoutTime = 2000;
+// Timer variables
+unsigned long lastTime = 0;  
+unsigned long lastTimeTemp = 0;
+unsigned long lastTimeAcc = 0;
+unsigned long gyroDelay = 10;
+unsigned long tempDelay = 2000;
+unsigned long accDelay = 200;
 
-DHT dht(DHTPIN, DHTTYPE);
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
 
-// Set web server port number to 80
-WiFiServer server(80);
+// Create an Event Source on /events
+AsyncEventSource events("/events");
+
+// Json variable to hold Sensor Readings
+StaticJsonDocument<200> docReadings;
 
 // Variable to store the HTTP request
 String header;
 
-// Auxiliar variables to store the current output state
-String output26State = "off";
-String output27State = "off";
+// MPU6050 sensor
+Adafruit_MPU6050 mpu;
 
-void setup() {
-  Serial.begin(115200);
+sensors_event_t a, g, temp;
+
+// MPU6050 sensor variables
+float ax, ay, az;
+float gx, gy, gz;
+
+// DHT sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+// DHT sensor variables
+float h;
+float t;
+
+// Init MPU6050 sensor
+void initMPU6050() {
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050 Found!");
+}
+
+// Init DHT sensor
+void initDHT() {
+  dht.begin();
+  Serial.println("DHT22 Found!");
+}
+
+// Init LED
+void initLED() {
   pinMode(LEDPIN, OUTPUT);
   digitalWrite(LEDPIN, LOW);
-  dht.begin();
+}
+
+// Init SPIFFS
+void initSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
+  Serial.println("SPIFFS mounted successfully");
+}
+
+// Init WiFi
+void initWiFi() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
   // Connect to Wi-Fi network with SSID and password
@@ -40,8 +92,7 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  if (WiFi.status() == WL_CONNECTED)
-  {
+  if (WiFi.status() == WL_CONNECTED) {
       digitalWrite(LEDPIN, HIGH);
   }
   
@@ -53,100 +104,90 @@ void setup() {
   server.begin();
 }
 
-void loop() {
-  // Check if a client has connected
-  WiFiClient client = server.available();
-  if (client) {
-    currentTime = millis();
-    previousTime = currentTime;
-    Serial.println("New Client.");
-    // String for current line
-    String currentline = ""; // make a String to hold incoming data from the client
-    while (client.connected() && currentTime - previousTime <= timeoutTime) {
-      currentTime = millis();
-      if (client.available()) { // if you got bytes from the client,
-        char c = client.read(); // read a byte, then
-        Serial.write(c); // print it out the serial monitor
-        header += c;
-        if (c == '\n'){
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentline.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Connection: close");
-            client.println();
+String getGyroReadings() {
+  mpu.getEvent(&a, &g, &temp);
+  gx = g.gyro.x;
+  gy = g.gyro.y;
+  gz = g.gyro.z;
+  docReadings["gx"] = gx;
+  docReadings["gy"] = gy;
+  docReadings["gz"] = gz;
+  String jsonString;
+  serializeJson(docReadings, jsonString);
+  return jsonString;
+}
 
-            delay(2000);
+String getAccReadings() {
+  mpu.getEvent(&a, &g, &temp);
+  ax = a.acceleration.x;
+  ay = a.acceleration.y;
+  az = a.acceleration.z;
+  docReadings["ax"] = ax;
+  docReadings["ay"] = ay;
+  docReadings["az"] = az;
+  String jsonString;
+  serializeJson(docReadings, jsonString);
+  return jsonString;
+}
 
-            // Reading temperature or humidity takes about 250 milliseconds!
-            // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-            float h = dht.readHumidity();
+String getTemperatureReadings() {
+  h = dht.readHumidity();
+  t = dht.readTemperature();
+  docReadings["hum"] = h;
+  docReadings["temp"] = t;
+  String jsonString;
+  serializeJson(docReadings, jsonString);
+  return jsonString;
+}
 
-            // Read temperature as Celsius (the default)
-            float t = dht.readTemperature();
+void setup() {
+  Serial.begin(115200);
+  pinMode(LEDPIN, OUTPUT);
+  initMPU6050();
+  initDHT();
+  initLED();
+  initSPIFFS();
+  initWiFi();
 
-            // Check if any reads failed and exit early (to try again).
-            if (isnan(h) || isnan(t)) {
-              Serial.println("Failed to read from DHT sensor!");
-              return;
-            }
+  // Send a GET request to <ESP_IP>/get?message=<message>
+  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/index.html", "text/html");
+  });
 
-            // Compute heat index in Celsius (isFahreheit = false)
-            float hic = dht.computeHeatIndex(t, h, false);
+  // Serve static files
+  server.serveStatic("/", SPIFFS, "/");
 
-            Serial.print("Humidity: ");
-            Serial.print(h);
-            Serial.println(" %\t");
-            Serial.print("Temperature: ");
-            Serial.print(t);
-            Serial.println(" *C ");
-
-            // Display the HTML web page
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            client.println("<link rel=\"icon\" href=\"data:,\">");
-            // CSS to style the on/off buttons
-            // Feel free to change the background-color and font-size attributes to fit your preferences
-            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-            client.println(".button { background-color: #195B6A; border: none; color: white; padding: 16px 40px;");
-            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-            client.println(".button2 {background-color: #77878A;}</style></head>");
-
-            // Web Page Heading
-            client.println("<body><h1>ESP32 Web Server</h1>");
-
-            // Display Humidity
-            client.println("<p>Humidity: ");
-            client.println(h);
-            client.println(" %</p>");
-
-            // Display Temperature
-            client.println("<p>Temperature: ");
-            client.println(t);
-            client.println(" *C</p>");
-
-            client.println("</body></html>");
-
-            // The HTTP response ends with another blank line
-            client.println();
-            // Break out of the while loop
-            break;
-          } else { // if you got a newline, then clear currentLine
-            currentline = "";
-          }
-        } else if (c != '\r') { // if you got anything else but a carriage return character,
-          currentline += c; // add it to the end of the currentLine
-        }
-      }
+  // Handle Web Server Events
+  events.onConnect([](AsyncEventSourceClient *client){
+    if(client->lastId()){
+      Serial.printf("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
     }
-    // Clear the header variable
-    header = "";
-    // Close the connection
-    client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
+
+    // send event with message "hello!", id current millis
+    // and set reconnect delay to 1 second
+    client->send("hello!", NULL, millis(), 10000);
+  });
+  server.addHandler(&events);
+  server.begin();
+}
+
+void loop() {
+  if((millis() - lastTime) > gyroDelay) {
+    lastTime = millis();
+    events.send(getGyroReadings().c_str(), "gyro_readings", millis());
+    lastTime = millis();
+    Serial.println(getGyroReadings().c_str());
+  }
+
+  if((millis() - lastTimeAcc) > accDelay) {
+    lastTimeAcc = millis();
+    events.send(getAccReadings().c_str(), "accelerometer_readings", millis());
+    lastTimeAcc = millis();
+  }
+
+  if((millis() - lastTimeTemp) > tempDelay) {
+    lastTimeTemp = millis();
+    events.send(getTemperatureReadings().c_str(), "temperature_readings", millis());
+    lastTimeTemp = millis();
   }
 }
