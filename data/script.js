@@ -1,8 +1,4 @@
-import THREE from "three";
-
-document.addEventListener("DOMContentLoaded", function() {
-
-    let scene, camera, rendered, cube;
+/*     let scene, camera, rendered, cube;
     function parentWidth(elem) {
         return elem.parentElement.clientWidth;
     }
@@ -56,49 +52,46 @@ document.addEventListener("DOMContentLoaded", function() {
     window.addEventListener('resize', onWindowResize, false);
 
     // Create the 3D representation
-    init3D();
+    init3D();  */
 
     // Create events for the sensor readings
     if (!!window.EventSource) {
         var source = new EventSource('/events');
 
-        source.addEventListener('open', () => {
+        source.addEventListener('open',function(e){
           console.log("Events Connected");
-        });
+        }, false);
 
-        source.addEventListener('error', (e) => {
+        source.addEventListener('error', function(e){
           if (e.target.readyState !== EventSource.OPEN) {
             console.log("Events Disconnected");
           }
-        });
+        }, false);
 
-        source.addEventListener('gyro_readings', (e) => {
-            const obj = JSON.parse(e.data);
-            document.getElementById("gyroX").innerHTML = obj.gyroX;
-          document.getElementById("gyroY").innerHTML = obj.gyroY;
-          document.getElementById("gyroZ").innerHTML = obj.gyroZ;
-        });
+        source.addEventListener('gyro_readings', function(e){
+          const obj = JSON.parse(e.data);
+          document.getElementById("gyroX").innerHTML = obj.gyroX.toFixed(4);
+          document.getElementById("gyroY").innerHTML = obj.gyroY.toFixed(4);
+          document.getElementById("gyroZ").innerHTML = obj.gyroZ.toFixed(4);
+        }, false);
 
-        source.addEventListener('temperature_readings', (e) => {
-            const obj = JSON.parse(e.data);
-          document.getElementById("temp").innerHTML = obj.temp;
-          document.getElementById("hum").innerHTML = obj.hum;
-        });
+        source.addEventListener('temperature_readings', function(e){
+          const obj = JSON.parse(e.data);
+          document.getElementById("temp").innerHTML = obj.temp.toFixed(2);
+          document.getElementById("hum").innerHTML = obj.hum.toFixed(2);
+        }, false);
 
-        source.addEventListener('accelerometer_readings', (e) => {
-          console.log("accelerometer_readings", e.data);
-            const obj = JSON.parse(e.data);
-            document.getElementById("accX").innerHTML = obj.accX;
-          document.getElementById("accY").innerHTML = obj.accY;
-          document.getElementById("accZ").innerHTML = obj.accZ;
-        });
+        source.addEventListener('accelerometer_readings', function(e){
+          const obj = JSON.parse(e.data);
+          document.getElementById("accX").innerHTML = obj.accX.toFixed(4);
+          document.getElementById("accY").innerHTML = obj.accY.toFixed(4);
+          document.getElementById("accZ").innerHTML = obj.accZ.toFixed(4);
+        }, false);
       }
 
-    function resetPosition(element){
+    /* function resetPosition(element){
         var xhr = new XMLHttpRequest();
         xhr.open("GET", "/"+element.id, true);
         console.log(element.id);
         xhr.send();
-    }
-
-});
+    } */

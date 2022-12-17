@@ -14,10 +14,11 @@ const int DHTTYPE = DHT22; // DHT 22 (AM2302), AM2321
 const int LEDPIN = 2; // Led pin
 const int SHOCKLEDPIN = 19; // Shock Led pin
 const int BUZZERPIN = 23; // Buzzer sensor pin
-const int SHOCKPIN = 32; // Shock sensor pin
-const char* ssid = "iPhone de Lucas";
-const char* password = "babayaga";
-const char* mqtt_server = "172.20.10.2";
+const int SHOCKPIN = 3; // Shock sensor pin
+bool shockSensorState = 0;
+const char* ssid = "Galaxy Note10f6eb";
+const char* password = "hzlo7594";
+const char* mqtt_server = "192.168.52.253";
 //Create WiFiClient object
 WiFiClient espClient;
 // Create PubSubClient object
@@ -47,6 +48,10 @@ sensors_event_t a, g, temp;
 // MPU6050 sensor variables
 float ax, ay, az;
 float gx, gy, gz;
+// Gyroscope sensor variables
+float gyroXerror = 0.07;
+float gyroYerror = 0.03;
+float gyroZerror = 0.01;
 // DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
 // DHT sensor variables
@@ -74,12 +79,13 @@ void initDHT() {
 void initShock() {
   pinMode(SHOCKPIN, INPUT);
   pinMode(SHOCKLEDPIN, OUTPUT);
+  digitalWrite(SHOCKPIN, LOW);
   digitalWrite(SHOCKLEDPIN, LOW);
 }
 
 // Init Buzzer sensor
 void initBuzzer() {
-  pinMode(BUZZERPIN, INPUT);
+  pinMode(BUZZERPIN, OUTPUT);
 }
 
 // Init buil-in LED
@@ -156,18 +162,25 @@ void reconnect() {
     }
   }
 }
-// calculate radians to degrees
-float radToDeg(float rad) {
-  return rad * 180 / M_PI;
-}
-
 
 String getGyroReadings() {
   mpu.getEvent(&a, &g, &temp);
-  gx = g.gyro.x;
-  gy = g.gyro.y;
-  gz = g.gyro.z;
-  docReadings["gyroX"] = gx * 180 / M_PI;
+  float gyroX_temp = g.gyro.x;
+  if(abs(gyroX_temp) > gyroXerror)  {
+    gx += gyroX_temp/50.00;
+  }
+  //gx = g.gyro.x;
+  float gyroY_temp = g.gyro.y;
+  if(abs(gyroY_temp) > gyroYerror) {
+    gy += gyroY_temp/70.00;
+  }
+  //gy = g.gyro.y;
+  float gyroZ_temp = g.gyro.z;
+  if(abs(gyroZ_temp) > gyroZerror) {
+    gz += gyroZ_temp/90.00;
+  }
+  //gz = g.gyro.z;
+  docReadings["gyroX"] = gx;
   docReadings["gyroY"] = gy;
   docReadings["gyroZ"] = gz;
   String jsonString;
@@ -209,16 +222,6 @@ void setup() {
   initWiFi();
   initMQTT();
 
-  File file = SPIFFS.open("/index.html");
-  if(!file){
-    Serial.println("Failed to open file for reading");
-    return;
-  }
-  Serial.println("File Content:");
-  while(file.available()){
-    Serial.write(file.read());
-  }
-  file.close();
   // Send a GET request to <ESP_IP>/get?message=<message>
   server.on("/home", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.html", "text/html");
@@ -232,11 +235,12 @@ void setup() {
 }
 
 void loop() {
+  
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
-
+  
   long currentMillis = millis();
   if (currentMillis - lastMsg > 5000) {
     lastMsg = currentMillis;
@@ -274,5 +278,16 @@ void loop() {
     lastTimeTemp = millis();
     events.send(getTemperatureReadings().c_str(), "temperature_readings", millis());
     lastTimeTemp = millis();
+  }
+  
+  shockSensorState = digitalRead(SHOCKPIN);
+  Serial.println(shockSensorState);
+  if (shockSensorState == LOW){    
+      digitalWrite(SHOCKLEDPIN,HIGH);
+      digitalWrite(BUZZERPIN,HIGH);
+      delay(500);
+      digitalWrite(SHOCKLEDPIN,LOW);
+      digitalWrite(BUZZERPIN,LOW);
+      delay(500);
   }
 }
